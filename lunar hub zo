@@ -1,0 +1,771 @@
+--[[
+    =======================================================
+    🌙 LUNAR HUB | [🌋] Ride A Pet
+    Developed with roblox-mcp pair programming
+    =======================================================
+]]
+
+local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local CoreGui = game:GetService("CoreGui")
+
+local LocalPlayer = Players.LocalPlayer
+
+-- Clean previous instances of ScreenGui and Toggle Button
+for _, gui in ipairs(CoreGui:GetChildren()) do
+    if gui:IsA("ScreenGui") and (gui.Name == "ScreenGui" or gui.Name:find("Fluent") or gui.Name == "Lunar_ToggleButtonGui" or gui.Name == "KL_ToggleButtonGui") then
+        pcall(function() gui:Destroy() end)
+    end
+end
+
+-- Load Fluent UI Library
+local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
+local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/SaveManager.lua"))()
+local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/InterfaceManager.lua"))()
+
+-- State Configuration
+local Config = {
+    -- Auto Farm
+    AutoCollectCash = true,
+    AutoHatchEggs = false,
+    AutoBasketDrop = false,
+    AutoRebirth = false,
+    
+    -- Egg Sniper / Farm
+    AutoPickEgg = false,
+    SelectedEggType = "All",
+    EggESP = true,
+    
+    -- Player Mods
+    WalkSpeed = 16,
+    CustomWalkSpeed = false,
+    JumpPower = 50,
+    CustomJumpPower = false,
+    InfiniteJump = false,
+    Noclip = false,
+    
+    -- Pop Up Button
+    ShowPopupButton = true,
+}
+
+-- Remotes & References
+local GameRemotes = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Game")
+local ReusableRemotes = ReplicatedStorage.Remotes:WaitForChild("Reusable")
+
+local Remotes = {
+    PetCollect = GameRemotes:WaitForChild("PetCollect"),
+    EggPickup = GameRemotes:WaitForChild("EggPickup"),
+    BasketDrop = GameRemotes:WaitForChild("BasketDrop"),
+    Hatch = GameRemotes:WaitForChild("Hatch"),
+    Rebirth = GameRemotes:WaitForChild("Rebirth"),
+    TeleportToPlot = GameRemotes:WaitForChild("TeleportToPlot")
+}
+
+local PetRenderer = nil
+pcall(function()
+    PetRenderer = require(LocalPlayer.PlayerScripts.Game.Pets.PetRenderer)
+end)
+
+local ActiveEggsFolder = nil
+pcall(function()
+    ActiveEggsFolder = (ReplicatedStorage:FindFirstChild("ServerData") or ReplicatedStorage):WaitForChild("ActiveEggs")
+end)
+
+-- Window Creation
+local Window = Fluent:CreateWindow({
+    Title = "LUNAR HUB",
+    SubTitle = "Ride A Pet | v1.0.0",
+    TabWidth = 150,
+    Size = UDim2.fromOffset(590, 450),
+    Acrylic = false,
+    Theme = "Dark",
+    MinimizeKey = Enum.KeyCode.RightControl
+})
+
+local Tabs = {
+    Main = Window:AddTab({ Title = "Auto Farm", Icon = "sparkles" }),
+    Eggs = Window:AddTab({ Title = "Eggs & Sniper", Icon = "egg" }),
+    Teleport = Window:AddTab({ Title = "Teleport", Icon = "map-pin" }),
+    Player = Window:AddTab({ Title = "Player Mods", Icon = "user" }),
+    Settings = Window:AddTab({ Title = "Settings", Icon = "settings" })
+}
+
+local Options = Fluent.Options
+
+----------------------------------------------------------------------
+-- FLOATING POP UP BUTTON (LUNAR HUB LOGO & DRAGGABLE)
+----------------------------------------------------------------------
+
+local function SetupFloatingToggleButton(targetWindow)
+    if CoreGui:FindFirstChild("Lunar_ToggleButtonGui") then
+        pcall(function() CoreGui.Lunar_ToggleButtonGui:Destroy() end)
+    end
+    
+    local ToggleGui = Instance.new("ScreenGui")
+    ToggleGui.Name = "Lunar_ToggleButtonGui"
+    ToggleGui.ResetOnSpawn = false
+    ToggleGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    
+    local Container = Instance.new("Frame")
+    Container.Name = "DragContainer"
+    Container.Size = UDim2.fromOffset(62, 62)
+    Container.Position = UDim2.new(0, 25, 0.45, 0)
+    Container.BackgroundTransparency = 1
+    Container.Parent = ToggleGui
+    
+    local Button = Instance.new("ImageButton")
+    Button.Name = "PopupButton"
+    Button.Size = UDim2.fromScale(1, 1)
+    Button.Position = UDim2.fromScale(0, 0)
+    Button.BackgroundColor3 = Color3.fromRGB(15, 20, 32)
+    Button.BackgroundTransparency = 0.1
+    Button.AutoButtonColor = false
+    Button.Active = true
+    Button.ClipsDescendants = true
+    Button.Parent = Container
+    
+    local UICorner = Instance.new("UICorner")
+    UICorner.CornerRadius = UDim.new(0, 31)
+    UICorner.Parent = Button
+    
+    local UIStroke = Instance.new("UIStroke")
+    UIStroke.Name = "BorderStroke"
+    UIStroke.Color = Color3.fromRGB(90, 180, 255)
+    UIStroke.Thickness = 2.5
+    UIStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+    UIStroke.Parent = Button
+    
+    -- Logo Image
+    local Logo = Instance.new("ImageLabel")
+    Logo.Name = "LogoImage"
+    Logo.Size = UDim2.fromScale(1, 1)
+    Logo.Position = UDim2.fromScale(0, 0)
+    Logo.BackgroundTransparency = 1
+    Logo.ScaleType = Enum.ScaleType.Fit
+    
+    -- Load user's uploaded mascot picture
+    local assetId = nil
+    if typeof(isfile) == "function" and isfile("lunar_hub.png") and typeof(getcustomasset) == "function" then
+        pcall(function()
+            assetId = getcustomasset("lunar_hub.png")
+        end)
+    end
+    
+    if assetId then
+        Logo.Image = assetId
+    else
+        Logo.Image = "rbxassetid://10723415903" -- Fallback icon
+    end
+    Logo.Parent = Button
+    
+    -- Status Dot (Green = UI Visible, Red = UI Hidden)
+    local StatusDot = Instance.new("Frame")
+    StatusDot.Name = "StatusDot"
+    StatusDot.Size = UDim2.fromOffset(14, 14)
+    StatusDot.Position = UDim2.new(1, -15, 1, -15)
+    StatusDot.BackgroundColor3 = Color3.fromRGB(50, 230, 100)
+    StatusDot.ZIndex = 5
+    StatusDot.Parent = Container
+    
+    local DotCorner = Instance.new("UICorner")
+    DotCorner.CornerRadius = UDim.new(1, 0)
+    DotCorner.Parent = StatusDot
+    
+    local DotStroke = Instance.new("UIStroke")
+    DotStroke.Thickness = 1.8
+    DotStroke.Color = Color3.fromRGB(15, 20, 32)
+    DotStroke.Parent = StatusDot
+    
+    local function UpdateVisualState(visible)
+        if visible then
+            StatusDot.BackgroundColor3 = Color3.fromRGB(50, 230, 100)
+            UIStroke.Color = Color3.fromRGB(90, 180, 255)
+        else
+            StatusDot.BackgroundColor3 = Color3.fromRGB(240, 70, 70)
+            UIStroke.Color = Color3.fromRGB(110, 120, 140)
+        end
+    end
+    
+    if targetWindow and targetWindow.Root then
+        targetWindow.Root:GetPropertyChangedSignal("Visible"):Connect(function()
+            UpdateVisualState(targetWindow.Root.Visible)
+        end)
+    end
+    
+    -- Dragging Logic
+    local dragging = false
+    local dragStart = nil
+    local startPos = nil
+    local isMoving = false
+    
+    Button.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            isMoving = false
+            dragStart = input.Position
+            startPos = Container.Position
+            
+            local connection
+            connection = input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                    connection:Disconnect()
+                end
+            end)
+        end
+    end)
+    
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            local delta = input.Position - dragStart
+            if delta.Magnitude > 4 then
+                isMoving = true
+            end
+            
+            local viewport = Workspace.CurrentCamera and Workspace.CurrentCamera.ViewportSize or Vector2.new(1920, 1080)
+            local newX = math.clamp(startPos.X.Offset + delta.X, 0, viewport.X - 70)
+            local newY = math.clamp(startPos.Y.Offset + delta.Y, 0, viewport.Y - 70)
+            
+            Container.Position = UDim2.new(
+                startPos.X.Scale,
+                newX,
+                startPos.Y.Scale,
+                newY
+            )
+        end
+    end)
+    
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = false
+        end
+    end)
+    
+    -- Toggle Action
+    local function ToggleUI()
+        if not targetWindow or not targetWindow.Root then return end
+        local isVisible = targetWindow.Root.Visible
+        local willVisible = not isVisible
+        
+        TweenService:Create(Button, TweenInfo.new(0.08, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+            Size = UDim2.fromOffset(54, 54),
+            Position = UDim2.fromOffset(4, 4)
+        }):Play()
+        task.wait(0.08)
+        TweenService:Create(Button, TweenInfo.new(0.12, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+            Size = UDim2.fromScale(1, 1),
+            Position = UDim2.fromScale(0, 0)
+        }):Play()
+        
+        targetWindow.Root.Visible = willVisible
+        UpdateVisualState(willVisible)
+    end
+    
+    Button.MouseButton1Click:Connect(function()
+        if not isMoving then
+            ToggleUI()
+        end
+    end)
+    
+    ToggleGui.Parent = CoreGui
+    return ToggleGui
+end
+
+----------------------------------------------------------------------
+-- HELPER FUNCTIONS
+----------------------------------------------------------------------
+
+local function GetCharacter()
+    return LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+end
+
+local function GetRootPart()
+    local char = GetCharacter()
+    return char:FindFirstChild("HumanoidRootPart")
+end
+
+local function GetHumanoid()
+    local char = GetCharacter()
+    return char:FindFirstChildOfClass("Humanoid")
+end
+
+local function GetMyPlot()
+    for _, plot in ipairs(Workspace.Plots:GetChildren()) do
+        if plot:GetAttribute("NestsOwnerLoaded") == LocalPlayer.UserId 
+           or (plot:FindFirstChild("Data") and plot.Data:GetAttribute("Owner") == LocalPlayer.UserId) then
+            return plot
+        end
+    end
+    return nil
+end
+
+local function TeleportTo(cf)
+    local root = GetRootPart()
+    if root then
+        if typeof(cf) == "Vector3" then
+            root.CFrame = CFrame.new(cf + Vector3.new(0, 3, 0))
+        elseif typeof(cf) == "CFrame" then
+            root.CFrame = cf + Vector3.new(0, 3, 0)
+        end
+    end
+end
+
+-- Get unique egg types for dropdown
+local function GetActiveEggTypes()
+    local types = { "All" }
+    local seen = {}
+    if ActiveEggsFolder then
+        for _, egg in ipairs(ActiveEggsFolder:GetChildren()) do
+            local eggType = egg:GetAttribute("Egg")
+            if eggType and not seen[eggType] then
+                seen[eggType] = true
+                table.insert(types, eggType)
+            end
+        end
+    end
+    table.sort(types)
+    return types
+end
+
+----------------------------------------------------------------------
+-- TAB: AUTO FARM
+----------------------------------------------------------------------
+
+Tabs.Main:AddParagraph({
+    Title = "🐾 Ride A Pet Auto Farm",
+    Content = "ระบบฟาร์มอัตโนมัติ: เก็บเงินจากสัตว์เลี้ยงทั้งหมดแบบไม่จำกัดระยะ, นำไข่ใส่รังฟัก, และฟักไข่ทันทีเมื่อพร้อม"
+})
+
+local ToggleCollectCash = Tabs.Main:AddToggle("AutoCollectCashToggle", {
+    Title = "Auto Collect Pet Income (เก็บเงินสัตว์เลี้ยงอัตโนมัติ)",
+    Default = true
+})
+ToggleCollectCash:OnChanged(function()
+    Config.AutoCollectCash = Options.AutoCollectCashToggle.Value
+end)
+
+local ToggleHatch = Tabs.Main:AddToggle("AutoHatchEggsToggle", {
+    Title = "Auto Hatch Ready Eggs (ฟักไข่ที่พร้อมทันที)",
+    Default = false
+})
+ToggleHatch:OnChanged(function()
+    Config.AutoHatchEggs = Options.AutoHatchEggsToggle.Value
+end)
+
+local ToggleBasketDrop = Tabs.Main:AddToggle("AutoBasketDropToggle", {
+    Title = "Auto Drop Eggs in Nest (วางไข่ในรังอัตโนมัติ)",
+    Default = false
+})
+ToggleBasketDrop:OnChanged(function()
+    Config.AutoBasketDrop = Options.AutoBasketDropToggle.Value
+end)
+
+local ToggleRebirth = Tabs.Main:AddToggle("AutoRebirthToggle", {
+    Title = "Auto Rebirth (เกิดใหม่รับโบนัสอัตโนมัติ)",
+    Default = false
+})
+ToggleRebirth:OnChanged(function()
+    Config.AutoRebirth = Options.AutoRebirthToggle.Value
+end)
+
+Tabs.Main:AddButton({
+    Title = "Collect All Pet Cash Now",
+    Description = "กดเพื่อดึงเงินจากสัตว์เลี้ยงทุกตัวบนพื้นที่ทันที 1 ครั้ง",
+    Callback = function()
+        local count = 0
+        if PetRenderer then
+            for _, v in pairs(PetRenderer.GetAll()) do
+                if v.OwnerUserId == LocalPlayer.UserId and v.PetKey then
+                    Remotes.PetCollect:FireServer(v.PetKey)
+                    count = count + 1
+                end
+            end
+        end
+        Fluent:Notify({
+            Title = "Pet Income",
+            Content = "ดึงเงินจากสัตว์เลี้ยงแล้ว " .. count .. " ตัว!",
+            Duration = 3
+        })
+    end
+})
+
+----------------------------------------------------------------------
+-- TAB: EGGS & SNIPER
+----------------------------------------------------------------------
+
+Tabs.Eggs:AddParagraph({
+    Title = "🥚 Egg Finder & Auto Collector",
+    Content = "ค้นหาไข่หายากในแผนที่ (Golden, Dominus, Soul, Galaxy ฯลฯ) พร้อมระบบวาร์ปและเก็บอัตโนมัติ"
+})
+
+local ToggleEggESP = Tabs.Eggs:AddToggle("EggESPToggle", {
+    Title = "Egg ESP (แสดงตำแหน่งและชื่อไข่รอบแมพ)",
+    Default = true
+})
+ToggleEggESP:OnChanged(function()
+    Config.EggESP = Options.EggESPToggle.Value
+end)
+
+local EggDropdown = Tabs.Eggs:AddDropdown("EggDropdownSelect", {
+    Title = "Select Target Egg Type",
+    Values = GetActiveEggTypes(),
+    Multi = false,
+    Default = "All"
+})
+EggDropdown:OnChanged(function(v)
+    Config.SelectedEggType = v
+end)
+
+Tabs.Eggs:AddButton({
+    Title = "Refresh Egg List",
+    Description = "อัปเดตรายชื่อประเภทไข่ที่มีอยู่ในแผนที่ตอนนี้",
+    Callback = function()
+        local newTypes = GetActiveEggTypes()
+        EggDropdown:SetValues(newTypes)
+        Fluent:Notify({
+            Title = "Egg List Refreshed",
+            Content = "พบไข่ " .. (#newTypes - 1) .. " ชนิดในเซิร์ฟเวอร์",
+            Duration = 3
+        })
+    end
+})
+
+Tabs.Eggs:AddButton({
+    Title = "Teleport to Selected Egg",
+    Description = "วาร์ปไปยังไข่ประเภทที่เลือกทันที",
+    Callback = function()
+        local foundPos = nil
+        local foundName = nil
+        local foundId = nil
+        
+        if ActiveEggsFolder then
+            for _, egg in ipairs(ActiveEggsFolder:GetChildren()) do
+                local eggType = egg:GetAttribute("Egg")
+                local pos = egg:GetAttribute("Position")
+                if pos and (Config.SelectedEggType == "All" or eggType == Config.SelectedEggType) then
+                    foundPos = pos
+                    foundName = eggType or "Egg"
+                    foundId = egg.Name
+                    break
+                end
+            end
+        end
+        
+        if foundPos then
+            TeleportTo(foundPos)
+            task.wait(0.2)
+            if foundId then
+                Remotes.EggPickup:FireServer(foundId)
+            end
+            Fluent:Notify({
+                Title = "Egg Teleport",
+                Content = "วาร์ปไปยัง " .. foundName .. " แล้ว!",
+                Duration = 3
+            })
+        else
+            Fluent:Notify({
+                Title = "Egg Teleport",
+                Content = "ไม่พบไข่ประเภทที่เลือกในขณะนี้",
+                Duration = 3
+            })
+        end
+    end
+})
+
+local ToggleAutoPick = Tabs.Eggs:AddToggle("AutoPickEggToggle", {
+    Title = "Auto Farm / Collect Eggs (วาร์ปเก็บไข่อัตโนมัติ)",
+    Default = false
+})
+ToggleAutoPick:OnChanged(function()
+    Config.AutoPickEgg = Options.AutoPickEggToggle.Value
+end)
+
+----------------------------------------------------------------------
+-- TAB: TELEPORT
+----------------------------------------------------------------------
+
+Tabs.Teleport:AddParagraph({
+    Title = "📍 Map Teleport",
+    Content = "วาร์ปไปยังจุดสำคัญในแผนที่และแปลงที่ดินของตัวเอง"
+})
+
+Tabs.Teleport:AddButton({
+    Title = "Teleport to My Plot (กลับบ้าน)",
+    Description = "วาร์ปไปยังแปลงที่ดินและรังฟักไข่ของคุณทันที",
+    Callback = function()
+        local plot = GetMyPlot()
+        if plot and plot:FindFirstChild("Baseplate") then
+            TeleportTo(plot.Baseplate.Position + Vector3.new(0, 5, 0))
+        else
+            Remotes.TeleportToPlot:FireServer()
+        end
+        Fluent:Notify({ Title = "Teleport", Content = "วาร์ปกลับแปลงที่ดินของคุณแล้ว!", Duration = 3 })
+    end
+})
+
+local landmarkCoords = {
+    ["Spawn Area"] = Vector3.new(0, 40315, 750),
+    ["Volcano Area"] = Vector3.new(200, 40350, 1000),
+    ["Court"] = Vector3.new(-100, 40315, 600),
+    ["Epic Chest"] = Vector3.new(350, 40315, 800)
+}
+
+for name, pos in pairs(landmarkCoords) do
+    Tabs.Teleport:AddButton({
+        Title = "Teleport to " .. name,
+        Callback = function()
+            TeleportTo(pos)
+            Fluent:Notify({ Title = "Teleport", Content = "วาร์ปไปยัง " .. name .. " แล้ว", Duration = 3 })
+        end
+    })
+end
+
+----------------------------------------------------------------------
+-- TAB: PLAYER MODS
+----------------------------------------------------------------------
+
+Tabs.Player:AddToggle("CustomSpeedToggle", {
+    Title = "Enable Custom WalkSpeed",
+    Default = false
+}):OnChanged(function(v) Config.CustomWalkSpeed = v end)
+
+Tabs.Player:AddSlider("WalkSpeedSlider", {
+    Title = "WalkSpeed",
+    Default = 28,
+    Min = 16,
+    Max = 250,
+    Rounding = 0
+}):OnChanged(function(v) Config.WalkSpeed = v end)
+
+Tabs.Player:AddToggle("CustomJumpToggle", {
+    Title = "Enable Custom JumpPower",
+    Default = false
+}):OnChanged(function(v) Config.CustomJumpPower = v end)
+
+Tabs.Player:AddSlider("JumpPowerSlider", {
+    Title = "JumpPower",
+    Default = 70,
+    Min = 50,
+    Max = 350,
+    Rounding = 0
+}):OnChanged(function(v) Config.JumpPower = v end)
+
+Tabs.Player:AddToggle("InfJumpToggle", {
+    Title = "Infinite Jump (กระโดดไม่จำกัด)",
+    Default = false
+}):OnChanged(function(v) Config.InfiniteJump = v end)
+
+Tabs.Player:AddToggle("NoclipToggle", {
+    Title = "Noclip (เดินทะลุกำแพง)",
+    Default = false
+}):OnChanged(function(v) Config.Noclip = v end)
+
+----------------------------------------------------------------------
+-- TAB: SETTINGS & POPUP
+----------------------------------------------------------------------
+
+local TogglePopUp = Tabs.Settings:AddToggle("ShowPopupButtonToggle", {
+    Title = "Show Floating Pop Up Button (ปุ่มลอยเปิด/ปิด UI)",
+    Default = true
+})
+TogglePopUp:OnChanged(function()
+    Config.ShowPopupButton = Options.ShowPopupButtonToggle.Value
+    local btnGui = CoreGui:FindFirstChild("Lunar_ToggleButtonGui")
+    if btnGui then
+        btnGui.Enabled = Config.ShowPopupButton
+    end
+end)
+
+----------------------------------------------------------------------
+-- CORE BACKGROUND LOOPS
+----------------------------------------------------------------------
+
+-- 1. Noclip Loop
+RunService.Stepped:Connect(function()
+    if Config.Noclip then
+        local char = LocalPlayer.Character
+        if char then
+            for _, part in ipairs(char:GetDescendants()) do
+                if part:IsA("BasePart") and part.CanCollide then
+                    part.CanCollide = false
+                end
+            end
+        end
+    end
+end)
+
+-- 2. WalkSpeed & JumpPower Loop
+RunService.Heartbeat:Connect(function()
+    local hum = GetHumanoid()
+    if hum then
+        if Config.CustomWalkSpeed then
+            hum.WalkSpeed = Config.WalkSpeed
+        end
+        if Config.CustomJumpPower then
+            hum.JumpPower = Config.JumpPower
+        end
+    end
+end)
+
+-- 3. Infinite Jump
+UserInputService.JumpRequest:Connect(function()
+    if Config.InfiniteJump then
+        local hum = GetHumanoid()
+        if hum then
+            hum:ChangeState(Enum.HumanoidStateType.Jumping)
+        end
+    end
+end)
+
+-- 4. Auto Collect Pet Income Worker
+task.spawn(function()
+    while true do
+        task.wait(1.5)
+        if Config.AutoCollectCash then
+            pcall(function()
+                if not PetRenderer then
+                    PetRenderer = require(LocalPlayer.PlayerScripts.Game.Pets.PetRenderer)
+                end
+                if PetRenderer then
+                    for _, v in pairs(PetRenderer.GetAll()) do
+                        if v.OwnerUserId == LocalPlayer.UserId and v.PetKey then
+                            Remotes.PetCollect:FireServer(v.PetKey)
+                        end
+                    end
+                end
+            end)
+        end
+    end
+end)
+
+-- 5. Auto Hatch & Basket Drop Worker
+task.spawn(function()
+    while true do
+        task.wait(1.0)
+        pcall(function()
+            local plot = GetMyPlot()
+            if plot then
+                -- Auto Hatch ready eggs
+                if Config.AutoHatchEggs and plot:FindFirstChild("Eggs") then
+                    for _, eggModel in ipairs(plot.Eggs:GetChildren()) do
+                        local eggKey = eggModel:GetAttribute("EggKey")
+                        if eggKey then
+                            Remotes.Hatch:FireServer({ EggKey = eggKey })
+                        end
+                    end
+                end
+                
+                -- Auto Basket Drop
+                if Config.AutoBasketDrop then
+                    Remotes.BasketDrop:FireServer()
+                end
+            end
+            
+            -- Auto Rebirth
+            if Config.AutoRebirth then
+                Remotes.Rebirth:FireServer()
+            end
+        end)
+    end
+end)
+
+-- 6. Auto Pick Egg Worker
+task.spawn(function()
+    while true do
+        task.wait(1.2)
+        if Config.AutoPickEgg and ActiveEggsFolder then
+            pcall(function()
+                for _, egg in ipairs(ActiveEggsFolder:GetChildren()) do
+                    local eggType = egg:GetAttribute("Egg")
+                    local pos = egg:GetAttribute("Position")
+                    if pos and (Config.SelectedEggType == "All" or eggType == Config.SelectedEggType) then
+                        TeleportTo(pos)
+                        task.wait(0.3)
+                        Remotes.EggPickup:FireServer(egg.Name)
+                        task.wait(0.4)
+                        break
+                    end
+                end
+            end)
+        end
+    end
+end)
+
+-- 7. Egg ESP Loop
+task.spawn(function()
+    while true do
+        task.wait(2.0)
+        pcall(function()
+            if Config.EggESP then
+                local rendered = Workspace:FindFirstChild("RenderedEggs")
+                if rendered then
+                    for _, eggModel in ipairs(rendered:GetChildren()) do
+                        local part = eggModel:FindFirstChild("Handle") or eggModel:FindFirstChildWhichIsA("BasePart")
+                        if part and not part:FindFirstChild("Lunar_EggESP") then
+                            local bg = Instance.new("BillboardGui")
+                            bg.Name = "Lunar_EggESP"
+                            bg.Adornee = part
+                            bg.Size = UDim2.new(0, 110, 0, 35)
+                            bg.StudsOffset = Vector3.new(0, 2.5, 0)
+                            bg.AlwaysOnTop = true
+                            
+                            local tl = Instance.new("TextLabel")
+                            tl.Size = UDim2.new(1, 0, 1, 0)
+                            tl.BackgroundTransparency = 1
+                            tl.TextColor3 = Color3.fromRGB(120, 210, 255)
+                            tl.TextStrokeTransparency = 0.2
+                            tl.TextSize = 13
+                            tl.Text = "🥚 " .. eggModel.Name
+                            tl.Parent = bg
+                            bg.Parent = part
+                            
+                            local hl = Instance.new("Highlight")
+                            hl.Name = "Lunar_EggHL"
+                            hl.FillColor = Color3.fromRGB(80, 180, 255)
+                            hl.FillTransparency = 0.65
+                            hl.OutlineColor = Color3.fromRGB(255, 255, 255)
+                            hl.Adornee = eggModel
+                            hl.Parent = eggModel
+                        end
+                    end
+                end
+            else
+                local rendered = Workspace:FindFirstChild("RenderedEggs")
+                if rendered then
+                    for _, eggModel in ipairs(rendered:GetChildren()) do
+                        if eggModel:FindFirstChild("Lunar_EggHL") then eggModel.Lunar_EggHL:Destroy() end
+                        for _, p in ipairs(eggModel:GetDescendants()) do
+                            if p.Name == "Lunar_EggESP" then p:Destroy() end
+                        end
+                    end
+                end
+            end
+        end)
+    end
+end)
+
+-- Settings & Window Config
+SaveManager:SetLibrary(Fluent)
+InterfaceManager:SetLibrary(Fluent)
+SaveManager:IgnoreThemeSettings()
+SaveManager:SetIgnoreIndexes({})
+InterfaceManager:SetFolder("LunarHub")
+SaveManager:SetFolder("LunarHub/RideAPet")
+
+InterfaceManager:BuildInterfaceSection(Tabs.Settings)
+SaveManager:BuildConfigSection(Tabs.Settings)
+
+Window:SelectTab(1)
+
+-- Initialize Floating Pop Up Button with astronaut bunny logo
+SetupFloatingToggleButton(Window)
+
+Fluent:Notify({
+    Title = "LUNAR HUB",
+    Content = "Loaded for Ride A Pet! Tap the 🌙 bunny logo to toggle.",
+    Duration = 5
+})
