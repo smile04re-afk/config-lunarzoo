@@ -1,0 +1,40 @@
+                            hl.Name = "Lunar_EggHL"
+                            hl.FillColor = Color3.fromRGB(80, 180, 255)
+                            hl.FillTransparency = 0.65
+                            hl.OutlineColor = Color3.fromRGB(255, 255, 255)
+                            hl.Adornee = eggModel
+                            hl.Parent = eggModel
+                        end
+                    end
+                end
+            else
+                local rendered = Workspace:FindFirstChild("RenderedEggs")
+                if rendered then
+                    for _, eggModel in ipairs(rendered:GetChildren()) do
+                        if eggModel:FindFirstChild("Lunar_EggHL") then eggModel.Lunar_EggHL:Destroy() end
+                        for _, p in ipairs(eggModel:GetDescendants()) do
+                            if p.Name == "Lunar_EggESP" then p:Destroy() end
+                        end
+                    end
+                end
+            end
+        end)
+    end
+end)
+-- Settings & Window Config
+SaveManager:SetLibrary(Fluent)
+InterfaceManager:SetLibrary(Fluent)
+SaveManager:IgnoreThemeSettings()
+SaveManager:SetIgnoreIndexes({})
+InterfaceManager:SetFolder("LunarHub")
+SaveManager:SetFolder("LunarHub/RideAPet")
+InterfaceManager:BuildInterfaceSection(Tabs.Settings)
+SaveManager:BuildConfigSection(Tabs.Settings)
+Window:SelectTab(1)
+-- Initialize Floating Pop Up Button with astronaut bunny logo
+SetupFloatingToggleButton(Window)
+Fluent:Notify({
+    Title = "LUNAR HUB",
+    Content = "Loaded for Ride A Pet! Tap the 🌙 bunny logo to toggle.",
+    Duration = 5
+})
